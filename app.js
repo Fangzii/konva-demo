@@ -488,4 +488,85 @@ stage.on('click tap', function (e) {
     mainLayer.draw();
     clippingLayer.draw();
   }
+});
+
+// 添加导出功能
+const exportButton = document.getElementById('exportButton');
+
+exportButton.addEventListener('click', () => {
+  // 隐藏变换器和锚点
+  tr.nodes([]);
+  anchors.forEach(anchor => anchor.hide());
+
+  // 创建一个临时的层来渲染导出内容
+  const exportLayer = new Konva.Layer({
+    x: clippingLayer.x(),
+    y: clippingLayer.y(),
+    scale: clippingLayer.scale(),
+    clip: {
+      x: drawingArea.x(),
+      y: drawingArea.y(),
+      width: drawingArea.width(),
+      height: drawingArea.height(),
+    }
+  });
+
+  // 复制工作区内的所有图片到导出层
+  clippingLayer.children.forEach(child => {
+    if (child instanceof Konva.Image) {
+      const clone = child.clone();
+      exportLayer.add(clone);
+    }
+  });
+
+  // 添加背景
+  const background = new Konva.Rect({
+    x: drawingArea.x(),
+    y: drawingArea.y(),
+    width: drawingArea.width(),
+    height: drawingArea.height(),
+    fill: 'white',
+  });
+  exportLayer.add(background);
+  background.moveToBottom();
+
+  // 添加网格
+  const gridRect = new Konva.Rect({
+    x: drawingArea.x(),
+    y: drawingArea.y(),
+    width: drawingArea.width(),
+    height: drawingArea.height(),
+    fillPatternImage: gridPattern,
+    fillPatternRepeat: 'repeat',
+    fillPatternOffset: { x: 0, y: 0 },
+    opacity: 0.7,
+  });
+  exportLayer.add(gridRect);
+  gridRect.moveToBottom();
+
+  // 将导出层添加到舞台
+  stage.add(exportLayer);
+
+  // 导出图片
+  const dataURL = exportLayer.toDataURL({
+    x: drawingArea.x(),
+    y: drawingArea.y(),
+    width: drawingArea.width(),
+    height: drawingArea.height(),
+    pixelRatio: 2, // 提高导出图片质量
+  });
+
+  // 创建下载链接
+  const link = document.createElement('a');
+  link.download = 'workspace-export.png';
+  link.href = dataURL;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  // 清理：移除导出层并显示变换器和锚点
+  exportLayer.destroy();
+  anchors.forEach(anchor => anchor.show());
+  mainLayer.draw();
+  clippingLayer.draw();
 }); 
