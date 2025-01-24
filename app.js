@@ -5,9 +5,18 @@ const stage = new Konva.Stage({
   height: window.innerHeight,
 });
 
-// 创建可拖拽的层
-const layer = new Konva.Layer();
-stage.add(layer);
+// 创建主层和裁剪层
+const mainLayer = new Konva.Layer();
+const clippingLayer = new Konva.Layer({
+  clip: {
+    x: 100,
+    y: 100,
+    width: 400,
+    height: 300,
+  }
+});
+stage.add(mainLayer);
+stage.add(clippingLayer);
 
 // 创建网格背景
 const gridSize = 20; // 网格大小
@@ -23,12 +32,19 @@ gridPattern.onload = function () {
     fillPatternRepeat: 'repeat',
     fillPatternOffset: { x: 0, y: 0 },
   });
-  layer.add(background);
+  mainLayer.add(background);
   background.moveToBottom(); // 确保背景在最底层
 
   // 更新背景位置和大小的函数
   const updateBackground = () => {
     background.setAttrs({
+      x: drawingArea.x(),
+      y: drawingArea.y(),
+      width: drawingArea.width(),
+      height: drawingArea.height(),
+    });
+    // 更新裁剪区域
+    clippingLayer.clip({
       x: drawingArea.x(),
       y: drawingArea.y(),
       width: drawingArea.width(),
@@ -78,49 +94,27 @@ const drawingArea = new Konva.Rect({
   strokeWidth: 1,
   draggable: false,
 });
-layer.add(drawingArea);
+mainLayer.add(drawingArea);
 
-// 加载示例图片
-const imageObj = new Image();
-imageObj.onload = function () {
-  const image = new Konva.Image({
-    x: 250,
-    y: 200,
-    image: imageObj,
-    width: 100,
-    height: 100,
-    draggable: true,
-  });
-  layer.add(image);
-
-  // 为图片添加变换功能
-  image.on('transform', function () {
-    image.setAttrs({
-      width: image.width() * image.scaleX(),
-      height: image.height() * image.scaleY(),
-      scaleX: 1,
-      scaleY: 1,
-    });
-  });
-
-  // 添加变换器
-  const tr = new Konva.Transformer({
-    nodes: [image],
-    keepRatio: true,
-    enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
-    // 设置变换器的样式
-    borderStroke: '#000000',     // 边框颜色
-    borderStrokeWidth: 2,        // 边框宽度
-    anchorStroke: '#000000',     // 锚点边框颜色
-    anchorFill: 'red',       // 锚点填充颜色
-    anchorSize: 10,              // 锚点大小
-    padding: 5,                  // 与节点的间距
-    rotateAnchorOffset: 20,      // 旋转锚点偏移
-    borderDash: [5, 5],         // 虚线边框效果
-  });
-  layer.add(tr);
-};
-imageObj.src = 'https://via.placeholder.com/150'; // 这里替换为实际的衣服图片URL
+// 创建一个全局的变换器
+const tr = new Konva.Transformer({
+  keepRatio: true,
+  enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+  // 设置变换器的样式
+  borderStroke: '#000000',     // 边框颜色
+  borderStrokeWidth: 2,        // 边框宽度
+  anchorStroke: '#000000',     // 锚点边框颜色
+  anchorFill: '#ffffff',       // 锚点填充颜色
+  anchorSize: 10,              // 锚点大小
+  padding: 5,                  // 与节点的间距
+  rotateAnchorOffset: 20,      // 旋转锚点偏移
+  borderDash: [5, 5],         // 虚线边框效果
+  rotationSnaps: [0, 90, 180, 270], // 旋转时的吸附角度
+  boundBoxFunc: function (oldBox, newBox) {
+    return newBox;  // 允许变换超出工作区
+  }
+});
+mainLayer.add(tr);  // 将变换器添加到主层
 
 // 创建锚点
 const anchors = [];
@@ -180,7 +174,7 @@ anchorPositions.forEach((pos, i) => {
       shadowOffset: { x: 0, y: 0 },
       shadowOpacity: 0.3,
     });
-    layer.draw();
+    mainLayer.draw();
   });
 
   anchor.on('mouseout touchend', function () {
@@ -190,14 +184,14 @@ anchorPositions.forEach((pos, i) => {
       shadowBlur: 0,
       shadowOpacity: 0,
     });
-    layer.draw();
+    mainLayer.draw();
   });
 
   // 根据位置设置拖拽约束
   anchor.on('dragmove', function () {
     const anchorPos = anchorPositions[i];
     const pos = stage.getPointerPosition();
-    const layerPos = layer.position();
+    const layerPos = mainLayer.position();
 
     if (anchorPos.x === 0.5) {  // 上下锚点
       // 保持水平位置不变
@@ -230,7 +224,7 @@ anchorPositions.forEach((pos, i) => {
   });
 
   anchors.push(anchor);
-  layer.add(anchor);
+  mainLayer.add(anchor);
 });
 
 // 更新作图区域大小
@@ -285,7 +279,11 @@ stage.on('mousemove touchmove', function () {
   const dx = newPos.x - lastPointerPosition.x;
   const dy = newPos.y - lastPointerPosition.y;
 
-  layer.move({
+  mainLayer.move({
+    x: dx,
+    y: dy,
+  });
+  clippingLayer.move({
     x: dx,
     y: dy,
   });
@@ -301,4 +299,105 @@ stage.on('mouseup touchend', function () {
 window.addEventListener('resize', function () {
   stage.width(window.innerWidth);
   stage.height(window.innerHeight);
+});
+
+// 处理图片上传
+const fileInput = document.getElementById('fileInput');
+const uploadButton = document.getElementById('uploadButton');
+
+uploadButton.addEventListener('click', () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', function (e) {
+  const files = e.target.files;
+
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+
+    reader.onload = function (event) {
+      const imageObj = new Image();
+      imageObj.src = event.target.result;
+
+      imageObj.onload = function () {
+        // 计算图片的初始大小，确保不会太大
+        let imgWidth = imageObj.width;
+        let imgHeight = imageObj.height;
+        const maxSize = 200;
+
+        if (imgWidth > maxSize || imgHeight > maxSize) {
+          const scale = maxSize / Math.max(imgWidth, imgHeight);
+          imgWidth *= scale;
+          imgHeight *= scale;
+        }
+
+        // 计算图片在工作区域中心的位置
+        const centerX = drawingArea.x() + drawingArea.width() / 2 - imgWidth / 2;
+        const centerY = drawingArea.y() + drawingArea.height() / 2 - imgHeight / 2;
+
+        const konvaImage = new Konva.Image({
+          x: centerX,
+          y: centerY,
+          image: imageObj,
+          width: imgWidth,
+          height: imgHeight,
+          draggable: true,
+          name: 'uploadedImage' // 添加名称以便识别
+        });
+
+        // 将图片添加到裁剪层
+        clippingLayer.add(konvaImage);
+
+        // 为图片添加点击事件，选中时显示变换器
+        konvaImage.on('click tap', function (e) {
+          // 阻止事件冒泡，防止触发画布的点击事件
+          e.cancelBubble = true;
+
+          // 更新变换器的节点
+          tr.nodes([konvaImage]);
+
+          // 确保变换器在最上层
+          tr.moveToTop();
+
+          mainLayer.draw();
+          clippingLayer.draw();
+        });
+
+        // 为图片添加变换事件
+        konvaImage.on('transform', function () {
+          // 更新图片属性
+          const node = this;
+          const scaleX = node.scaleX();
+          const scaleY = node.scaleY();
+
+          // 重置比例并应用到尺寸，移除最小尺寸限制
+          node.setAttrs({
+            width: node.width() * scaleX,
+            height: node.height() * scaleY,
+            scaleX: 1,
+            scaleY: 1
+          });
+        });
+
+        // 重绘两个层
+        mainLayer.draw();
+        clippingLayer.draw();
+
+        // 清除选择的文件
+        fileInput.value = '';
+      };
+    };
+
+    reader.readAsDataURL(file);
+  });
+});
+
+// 点击空白处取消选择
+stage.on('click tap', function (e) {
+  // 只有当点击的是舞台或作图区域时才取消选择
+  if (e.target === stage || e.target === drawingArea) {
+    tr.nodes([]);
+    mainLayer.draw();
+    clippingLayer.draw();
+  }
 }); 
