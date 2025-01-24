@@ -114,7 +114,7 @@ const tr = new Konva.Transformer({
     return newBox;  // 允许变换超出工作区
   }
 });
-mainLayer.add(tr);  // 将变换器添加到主层
+mainLayer.add(tr);
 
 // 创建锚点
 const anchors = [];
@@ -232,7 +232,7 @@ function updateDrawingArea() {
   const [top, right, bottom, left] = anchors;
   const gap = 3; // 与边缘的间距
 
-  // 计算新的区域属性
+  // 计算新的区域属性，考虑缩放因素
   const newAttrs = {
     x: left.x() + left.width() + gap,
     y: top.y() + top.height() + gap,
@@ -244,19 +244,55 @@ function updateDrawingArea() {
   if (newAttrs.width > 50 && newAttrs.height > 50) {
     drawingArea.setAttrs(newAttrs);
 
-    // 更新锚点位置
+    // 更新裁剪区域
+    clippingLayer.clip({
+      x: drawingArea.x(),
+      y: drawingArea.y(),
+      width: drawingArea.width(),
+      height: drawingArea.height(),
+    });
+
+    // 更新锚点位置，考虑缩放因素
     anchors.forEach((anchor, i) => {
       const pos = anchorPositions[i];
       const isVertical = pos.x === 0 || pos.x === 1;
-      const width = isVertical ? 16 : 24;
-      const height = isVertical ? 24 : 16;
+      const width = isVertical ? 10 : 34;
+      const height = isVertical ? 34 : 10;
+      const scaledGap = gap / currentScale;
 
-      if (pos.x === 0.5) {  // 上下锚点
-        anchor.x(drawingArea.x() + drawingArea.width() / 2 - 12);
+      let anchorX, anchorY;
+
+      if (pos.x === 0) { // 左边
+        anchorX = drawingArea.x() - (width + scaledGap);
+      } else if (pos.x === 1) { // 右边
+        anchorX = drawingArea.x() + drawingArea.width() + scaledGap;
+      } else { // 中间
+        anchorX = drawingArea.x() + pos.x * drawingArea.width() - width / 2;
       }
-      if (pos.y === 0.5) {  // 左右锚点
-        anchor.y(drawingArea.y() + drawingArea.height() / 2 - 12);
+
+      if (pos.y === 0) { // 上边
+        anchorY = drawingArea.y() - (height + scaledGap);
+      } else if (pos.y === 1) { // 下边
+        anchorY = drawingArea.y() + drawingArea.height() + scaledGap;
+      } else { // 中间
+        anchorY = drawingArea.y() + pos.y * drawingArea.height() - height / 2;
       }
+
+      anchor.setAttrs({
+        x: anchorX,
+        y: anchorY,
+        width: width,
+        height: height,
+        strokeWidth: 1 / currentScale, // 调整边框宽度
+      });
+    });
+
+    // 更新变换器的样式
+    tr.setAttrs({
+      anchorSize: 10 * currentScale,
+      strokeWidth: 2 * currentScale,
+      padding: 5 * currentScale,
+      rotateAnchorOffset: 20 * currentScale,
     });
   }
 }
@@ -272,12 +308,64 @@ stage.on('mousedown touchstart', function (e) {
   }
 });
 
+// 添加画布缩放功能
+let scaleBy = 1.1;
+let currentScale = 1;
+
+stage.on('wheel', function (e) {
+  e.evt.preventDefault();
+
+  const oldScale = currentScale;
+  const pointer = stage.getPointerPosition();
+  const mousePointTo = {
+    x: (pointer.x - mainLayer.x()) / oldScale,
+    y: (pointer.y - mainLayer.y()) / oldScale,
+  };
+
+  // 检测是否为触控板的缩放手势
+  const isZoomGesture = e.evt.ctrlKey || Math.abs(e.evt.deltaY) < Math.abs(e.evt.deltaX);
+
+  if (isZoomGesture) {
+    // 修改缩放方向：deltaY < 0 时放大，deltaY > 0 时缩小
+    const direction = e.evt.deltaY < 0 ? 1 : -1;
+    const newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
+
+    // 限制缩放范围
+    currentScale = Math.min(Math.max(0.1, newScale), 5);
+
+    const newPos = {
+      x: pointer.x - mousePointTo.x * currentScale,
+      y: pointer.y - mousePointTo.y * currentScale,
+    };
+
+    // 应用缩放和位置
+    mainLayer.scale({ x: currentScale, y: currentScale });
+    clippingLayer.scale({ x: currentScale, y: currentScale });
+
+    mainLayer.position(newPos);
+    clippingLayer.position(newPos);
+
+    // 更新变换器的样式以适应缩放
+    tr.setAttrs({
+      anchorSize: 10 * currentScale,          // 锚点大小随缩放同向调整
+      strokeWidth: 2 * currentScale,          // 边框宽度随缩放同向调整
+      padding: 5 * currentScale,              // 内边距随缩放同向调整
+      rotateAnchorOffset: 20 * currentScale,  // 旋转锚点偏移随缩放同向调整
+    });
+
+    // 重绘
+    mainLayer.batchDraw();
+    clippingLayer.batchDraw();
+  }
+});
+
+// 更新拖拽逻辑，考虑缩放因素
 stage.on('mousemove touchmove', function () {
   if (!isDragging) return;
 
   const newPos = stage.getPointerPosition();
-  const dx = newPos.x - lastPointerPosition.x;
-  const dy = newPos.y - lastPointerPosition.y;
+  const dx = (newPos.x - lastPointerPosition.x);
+  const dy = (newPos.y - lastPointerPosition.y);
 
   mainLayer.move({
     x: dx,
